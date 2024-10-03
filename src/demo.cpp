@@ -23,6 +23,10 @@
 
 uint64_t GetTimestamp(void);
 
+// Optional - For rviz2: time shift corrections
+#define TIME_SHIFT_SEC 0
+#define TIME_SHIFT_NSEC 400000000
+
 void  ToLaserscanMessagePublish(ldlidar::Points2D& src,  double lidar_spin_freq, LaserScanSetting& setting,
   rclcpp::Node::SharedPtr& node, rclcpp::Publisher<sensor_msgs::msg::LaserScan>::SharedPtr& lidarpub);
 
@@ -306,6 +310,7 @@ void  ToSensorPointCloudMessagePublish(ldlidar::Points2D& src, LaserScanSetting&
   sensor_msgs::msg::PointCloud output;
 
   output.header.stamp = start_scan_time;
+  //output.header.stamp = start_scan_time - rclcpp::Duration(TIME_SHIFT_SEC, TIME_SHIFT_NSEC);
   output.header.frame_id = setting.frame_id;
 
   sensor_msgs::msg::ChannelFloat32 defaultchannelval[3];
