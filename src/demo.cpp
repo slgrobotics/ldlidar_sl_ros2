@@ -52,6 +52,10 @@ int main(int argc, char **argv) {
   int serial_baudrate = 0;
   ldlidar::LDType lidartypename = ldlidar::LDType::NO_VER;
 
+  // Added to measure average beam count (points per revolution) at start:
+  int beam_count = 0;
+  int beam_count_i = 0;
+
   // declare ros2 param
   node->declare_parameter<std::string>("product_name", product_name);
   node->declare_parameter<std::string>("laser_scan_topic_name", laser_scan_topic_name);
@@ -141,8 +145,26 @@ int main(int argc, char **argv) {
       case ldlidar::LidarStatus::NORMAL: {
         double lidar_scan_freq = 0;
         lidar_drv->GetLidarScanFreq(lidar_scan_freq);
-        ToLaserscanMessagePublish(laser_scan_points, lidar_scan_freq, setting, node, lidar_pub_laserscan);
-        ToSensorPointCloudMessagePublish(laser_scan_points, setting, node, lidar_pub_pointcloud);
+        int n_points = static_cast<int>(laser_scan_points.size());
+
+        int n_samples = 20;
+        if(beam_count_i++ < n_samples) {
+          // Measure average beam count (points per revolution) at start:
+          if(beam_count_i > 1) {
+            // skip the first sample, it is messed up
+            beam_count += n_points;
+          }
+          //RCLCPP_INFO(node->get_logger(), "beam count: %d", n_points);
+          if(beam_count_i == n_samples) {
+            beam_count = beam_count / (n_samples - 1);
+            RCLCPP_INFO(node->get_logger(), "Average beam count: %d", beam_count);
+          }
+        } else if(n_points > beam_count - 5) {
+          // ensure the size of points vector is constant between revolutions:
+          laser_scan_points.resize(beam_count, laser_scan_points.back());
+          ToLaserscanMessagePublish(laser_scan_points, lidar_scan_freq, setting, node, lidar_pub_laserscan);
+          ToSensorPointCloudMessagePublish(laser_scan_points, setting, node, lidar_pub_pointcloud);
+        }
         break;
       }
       case ldlidar::LidarStatus::DATA_TIME_OUT: {
