@@ -1,5 +1,9 @@
 **Note:** STL-19P (LD19P) LIDAR has 230400 baud rate and ```'product_name': 'LDLiDAR_LD14P'``` setting works for it.
 
+See https://github.com/slgrobotics/robots_bringup/blob/main/Docs/Sensors/LD14.md
+
+================================= Original README: ======================================
+
 # Instructions
 
 > This SDK is only applicable to the LiDAR products sold by Shenzhen LDROBOT Co., LTD. The product models are :
