@@ -29,16 +29,17 @@ def generate_launch_description():
       name='ldlidar_publisher_ld14',
       output='screen',
       parameters=[
-        {'product_name': 'LDLiDAR_LD14P'},
+        {'product_name': 'LDLiDAR_LD14P'},  # LDLiDAR_LD14P setting also works for LD-19P LIDAR
         {'laser_scan_topic_name': 'scan'},
         {'point_cloud_2d_topic_name': 'pointcloud2d'},
         {'frame_id': 'base_laser'},
         {'port_name': '/dev/ttyUSB0'},
-        {'serial_baudrate' : 230400},
+        {'serial_baudrate' : 230400}, # LD-19P also has 230400 baud rate
         {'laser_scan_dir': True},
         {'enable_angle_crop_func': False},
         {'angle_crop_min': 135.0},
-        {'angle_crop_max': 225.0}
+        {'angle_crop_max': 225.0},
+        {'min_intensity': 40}
       ]
   )
 

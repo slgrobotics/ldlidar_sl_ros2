@@ -49,7 +49,9 @@ int main(int argc, char **argv) {
   setting.enable_angle_crop_func = false;
   setting.angle_crop_min = 0.0;
   setting.angle_crop_max = 0.0;
+  setting.min_intensity = 40.0;
   int serial_baudrate = 0;
+  
   ldlidar::LDType lidartypename = ldlidar::LDType::NO_VER;
 
   // Added to measure average beam count (points per revolution) at start:
@@ -67,6 +69,7 @@ int main(int argc, char **argv) {
   node->declare_parameter<bool>("enable_angle_crop_func", setting.enable_angle_crop_func);
   node->declare_parameter<double>("angle_crop_min", setting.angle_crop_min);
   node->declare_parameter<double>("angle_crop_max", setting.angle_crop_max);
+  node->declare_parameter<int>("min_intensity", setting.min_intensity);
 
   // get ros2 param
   node->get_parameter("product_name", product_name);
@@ -79,6 +82,7 @@ int main(int argc, char **argv) {
   node->get_parameter("enable_angle_crop_func", setting.enable_angle_crop_func);
   node->get_parameter("angle_crop_min", setting.angle_crop_min);
   node->get_parameter("angle_crop_max", setting.angle_crop_max);
+  node->get_parameter("min_intensity", setting.min_intensity);
 
   ldlidar::LDLidarDriver* lidar_drv = new ldlidar::LDLidarDriver();
 
@@ -93,6 +97,7 @@ int main(int argc, char **argv) {
   RCLCPP_INFO(node->get_logger(), "<enable_angle_crop_func>: %s", (setting.enable_angle_crop_func?"true":"false"));
   RCLCPP_INFO(node->get_logger(), "<angle_crop_min>: %f", setting.angle_crop_min);
   RCLCPP_INFO(node->get_logger(), "<angle_crop_max>: %f", setting.angle_crop_max);
+  RCLCPP_INFO(node->get_logger(), "<min_intensity>: %d ", setting.min_intensity);
 
   if (port_name.empty()) {
     RCLCPP_ERROR(node->get_logger(), "fail, port_name is empty!");
@@ -154,16 +159,18 @@ int main(int argc, char **argv) {
             // skip the first sample, it is messed up
             beam_count += n_points;
           }
-          //RCLCPP_INFO(node->get_logger(), "beam count: %d", n_points);
+          //RCLCPP_INFO(node->get_logger(), "LIDAR beam count: %d", n_points);
           if(beam_count_i == n_samples) {
             beam_count = beam_count / (n_samples - 1);
-            RCLCPP_INFO(node->get_logger(), "Average beam count: %d", beam_count);
+            RCLCPP_INFO(node->get_logger(), "LIDAR: Average beam count: %d", beam_count);
           }
-        } else if(n_points > beam_count - 5) {
+        } else if(abs(n_points - beam_count) < 5) {
           // ensure the size of points vector is constant between revolutions:
           laser_scan_points.resize(beam_count, laser_scan_points.back());
           ToLaserscanMessagePublish(laser_scan_points, lidar_scan_freq, setting, node, lidar_pub_laserscan);
           ToSensorPointCloudMessagePublish(laser_scan_points, setting, node, lidar_pub_pointcloud);
+        } else {
+          RCLCPP_WARN(node->get_logger(), "LIDAR beam count: %d (it should be around average %d)", n_points, beam_count);
         }
         break;
       }
@@ -247,7 +254,11 @@ void  ToLaserscanMessagePublish(ldlidar::Points2D& src,  double lidar_spin_freq,
       float intensity = point.intensity;      // laser receive intensity 
       float dir_angle = point.angle;
 
-      if ((point.distance == 0) && (point.intensity == 0)) { // filter is handled to  0, Nan will be assigned variable.
+      // Filter out unreasonable readings. Assign NaN to beam's variables to tell ROS there's nothing there:
+      if ((point.distance == 0)
+		      || (point.intensity < setting.min_intensity) // helps filtering out random noise
+		      //|| (point.intensity > 250)
+		      || (range < range_min + 0.02) || (range > range_max - 0.1)) {
         range = std::numeric_limits<float>::quiet_NaN(); 
         intensity = std::numeric_limits<float>::quiet_NaN();
       }
@@ -365,7 +376,7 @@ void  ToSensorPointCloudMessagePublish(ldlidar::Points2D& src, LaserScanSetting&
     float range = dst[i].distance / 1000.f;  // distance unit transform to meters
     float intensity = dst[i].intensity;      // laser receive intensity 
     float dir_angle = ANGLE_TO_RADIAN(dst[i].angle);
-    //  极坐标系转换为笛卡尔直角坐标系
+    //  Convert polar coordinates to Cartesian coordinates:
     output.points[i].x = range * cos(dir_angle);
     output.points[i].y = range * sin(dir_angle);
     output.points[i].z = 0.0;
@@ -375,5 +386,4 @@ void  ToSensorPointCloudMessagePublish(ldlidar::Points2D& src, LaserScanSetting&
   end_scan_time = start_scan_time;
 }
 
-/********************* (C) COPYRIGHT SHENZHEN LDROBOT CO., LTD *******END OF
- * FILE ********/
+/********************* (C) COPYRIGHT SHENZHEN LDROBOT CO., LTD *******END OF FILE ********/
