@@ -36,6 +36,7 @@ struct LaserScanSetting
   double angle_crop_min;
   double angle_crop_max;
   int min_intensity;
+  bool do_triplets;
 };
 
 #endif //__ROS_API_H__
