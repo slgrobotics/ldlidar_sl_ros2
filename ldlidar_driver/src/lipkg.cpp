@@ -220,9 +220,9 @@ bool LiPkg::AssemblePacket() {
       SlTransform trans(typenumber_);
       data = trans.Transform(data); // transform raw data to stantard data  
     
-      if (is_noise_filter_ && \
-        (typenumber_ != ldlidar::LDType::LD_14P_2300HZ) && \
-        (typenumber_ != ldlidar::LDType::LD_14P_4000HZ)) {
+      if (is_noise_filter_) {
+        // We need filtering for LD19P (LD14P) too, so - commented out the following:
+        // && (typenumber_ != ldlidar::LDType::LD_14P_2300HZ) && (typenumber_ != ldlidar::LDType::LD_14P_4000HZ)) {
         Slbf sb(speed_);
         tmp = sb.NearFilter(data); // filter noise point
       } else {
