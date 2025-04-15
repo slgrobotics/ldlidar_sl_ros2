@@ -52,6 +52,7 @@ int main(int argc, char **argv) {
   setting.min_intensity = 0.0;
   int serial_baudrate = 0;
   bool do_filtering = true;
+  setting.do_triplets = false;
   
   ldlidar::LDType lidartypename = ldlidar::LDType::NO_VER;
 
@@ -71,8 +72,8 @@ int main(int argc, char **argv) {
   node->declare_parameter<double>("angle_crop_min", setting.angle_crop_min);
   node->declare_parameter<double>("angle_crop_max", setting.angle_crop_max);
   node->declare_parameter<int>("min_intensity", setting.min_intensity);
-  node->declare_parameter<int>("do_filtering", do_filtering);
-  node->declare_parameter<int>("do_triplets", setting.do_triplets);
+  node->declare_parameter<bool>("do_filtering", do_filtering);
+  node->declare_parameter<bool>("do_triplets", setting.do_triplets);
 
   // get ros2 param
   node->get_parameter("product_name", product_name);
