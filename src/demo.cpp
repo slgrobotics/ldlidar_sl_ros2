@@ -106,6 +106,7 @@ int main(int argc, char **argv) {
 
   lidar_drv->RegisterGetTimestampFunctional(std::bind(&GetTimestamp)); 
 
+  // make sure: .../ldlidar_driver/src/lipkg.cpp:224 - commented out exclusion of LD_14P_* in the if statement
   lidar_drv->EnableFilterAlgorithnmProcess(true);
   
   if(!strcmp(product_name.c_str(), "LDLiDAR_LD14")) {
@@ -140,17 +141,18 @@ int main(int argc, char **argv) {
 
   rclcpp::WallRate r(6); //Hz
 
+  ldlidar::Points2D laser_scan_points_raw;
   ldlidar::Points2D laser_scan_points;
 
   RCLCPP_INFO(node->get_logger(), "start normal, pub lidar data");
 
   while (rclcpp::ok() && ldlidar::LDLidarDriver::IsOk()) {
   
-    switch (lidar_drv->GetLaserScanData(laser_scan_points, 1500)){
+    switch (lidar_drv->GetLaserScanData(laser_scan_points_raw, 1500)){
       case ldlidar::LidarStatus::NORMAL: {
         double lidar_scan_freq = 0;
         lidar_drv->GetLidarScanFreq(lidar_scan_freq);
-        int n_points = static_cast<int>(laser_scan_points.size());
+        int n_points = static_cast<int>(laser_scan_points_raw.size());
 
         int n_samples = 20;
         if(beam_count_i++ < n_samples) {
@@ -162,13 +164,55 @@ int main(int argc, char **argv) {
           //RCLCPP_INFO(node->get_logger(), "LIDAR beam count: %d", n_points);
           if(beam_count_i == n_samples) {
             beam_count = beam_count / (n_samples - 1);
+
+            beam_count = (beam_count / 3) * 3; // ensure it consists of triples for filtering
+
             RCLCPP_INFO(node->get_logger(), "LIDAR: Average beam count: %d", beam_count);
           }
         } else if(abs(n_points - beam_count) < 5) {
           // ensure the size of points vector is constant between revolutions:
-          laser_scan_points.resize(beam_count, laser_scan_points.back());
+          laser_scan_points_raw.resize(beam_count, laser_scan_points_raw.back());
+
+          /*
+          laser_scan_points.clear();
+
+          // filter data into triples:
+          for(int i = 1; i < beam_count - 2 ;i += 3) {
+            
+            for(int j=i-1; j < 3 ;j++) {
+
+              auto point =  laser_scan_points_raw.at(j);
+              float range = point.distance / 1000.f;  // distance unit transform to meters
+              int intensity = point.intensity;      // laser receive intensity 0...254
+              float range_min = 0.2;
+              float range_max = 12.0;
+
+              if((intensity < setting.min_intensity) || (range < range_min + 0.02) || (range > range_max - 0.1)) {
+                point.distance = 500;
+              }
+            }
+
+            auto p = laser_scan_points_raw.at(i);
+            auto pd = ldlidar::PointData(p.angle, p.distance, p.intensity, p.stamp, p.x, p.y);
+
+            laser_scan_points.push_back(pd);
+
+            //laser_scan_points.at(i).intensity = 100;
+            //laser_scan_points.at(i).distance = 1000;
+            //laser_scan_points.at(i-1).intensity = 60;
+            //laser_scan_points.at(i-1).distance = 980;
+            //laser_scan_points.at(i+1).intensity = 140;
+            //laser_scan_points.at(i+1).distance = 1020;
+          }
+
+          //RCLCPP_INFO(node->get_logger(), "LIDAR beam count: %d  %d  %d", beam_count, static_cast<int>(laser_scan_points_raw.size()), static_cast<int>(laser_scan_points.size()));
+
           ToLaserscanMessagePublish(laser_scan_points, lidar_scan_freq, setting, node, lidar_pub_laserscan);
           ToSensorPointCloudMessagePublish(laser_scan_points, setting, node, lidar_pub_pointcloud);
+          */
+
+          ToLaserscanMessagePublish(laser_scan_points_raw, lidar_scan_freq, setting, node, lidar_pub_laserscan);
+          ToSensorPointCloudMessagePublish(laser_scan_points_raw, setting, node, lidar_pub_pointcloud);
         } else {
           RCLCPP_WARN(node->get_logger(), "LIDAR beam count: %d (it should be around average %d)", n_points, beam_count);
         }
