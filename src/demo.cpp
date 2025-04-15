@@ -27,6 +27,9 @@ uint64_t GetTimestamp(void);
 #define TIME_SHIFT_SEC 0
 #define TIME_SHIFT_NSEC 400000000
 
+#define LIDAR_RANGE_MIN 0.1
+#define LIDAR_RANGE_MAX 12.0
+
 void  ToLaserscanMessagePublish(ldlidar::Points2D& src,  double lidar_spin_freq, LaserScanSetting& setting,
   rclcpp::Node::SharedPtr& node, rclcpp::Publisher<sensor_msgs::msg::LaserScan>::SharedPtr& lidarpub);
 
@@ -187,31 +190,31 @@ int main(int argc, char **argv) {
 
             // combine beams into triplets, cut beams count by three:
             for(int i = 1; i < beam_count - 2 ;i += 3) {
-              
+
+              int p_intensity = 0;
+              int p_distance = 0;
+              int p_count = 0;
+
               for(int j=i-1; j < 3 ;j++) {
 
                 auto point =  laser_scan_points_raw.at(j);
                 float range = point.distance / 1000.f;  // distance unit transform to meters
-                int intensity = point.intensity;      // laser receive intensity 0...254
-                float range_min = 0.2;
-                float range_max = 12.0;
+                int intensity = point.intensity;        // laser receive intensity 0...254
 
-                if((intensity < setting.min_intensity) || (range < range_min + 0.02) || (range > range_max - 0.1)) {
-                  point.distance = 500;
+                if((intensity > setting.min_intensity) && (range > LIDAR_RANGE_MIN + 0.01) && (range < LIDAR_RANGE_MAX - 0.01)) {
+                  // valid point - count and average:
+                  p_distance += point.distance;
+                  p_intensity += point.intensity;
+                  p_count++;
                 }
               }
 
-              auto p = laser_scan_points_raw.at(i);
-              auto pd = ldlidar::PointData(p.angle, p.distance, p.intensity, p.stamp, p.x, p.y);
+              p_count = p_count == 0 ? 1 : p_count; // avoid division by zero when all three points hit infinity
+
+              auto p = laser_scan_points_raw.at(i); // use mid-point as model
+              auto pd = ldlidar::PointData(p.angle, p_distance / p_count, p_intensity / p_count, p.stamp, p.x, p.y);
 
               laser_scan_points.push_back(pd);
-
-              //laser_scan_points.at(i).intensity = 100;
-              //laser_scan_points.at(i).distance = 1000;
-              //laser_scan_points.at(i-1).intensity = 60;
-              //laser_scan_points.at(i-1).distance = 980;
-              //laser_scan_points.at(i+1).intensity = 140;
-              //laser_scan_points.at(i+1).distance = 1020;
             }
 
             //RCLCPP_INFO(node->get_logger(), "LIDAR beam count: %d  %d  %d", beam_count, static_cast<int>(laser_scan_points_raw.size()), static_cast<int>(laser_scan_points.size()));
@@ -265,7 +268,7 @@ uint64_t GetTimestamp(void) {
 
 void  ToLaserscanMessagePublish(ldlidar::Points2D& src,  double lidar_spin_freq, LaserScanSetting& setting,
   rclcpp::Node::SharedPtr& node, rclcpp::Publisher<sensor_msgs::msg::LaserScan>::SharedPtr& lidarpub) {
-  float angle_min, angle_max, range_min, range_max, angle_increment;
+  float angle_min, angle_max, angle_increment;
   double scan_time;
   rclcpp::Time start_scan_time;
   static rclcpp::Time end_scan_time;
@@ -282,8 +285,6 @@ void  ToLaserscanMessagePublish(ldlidar::Points2D& src,  double lidar_spin_freq,
   // Adjust the parameters according to the demand
   angle_min = 0;
   angle_max = (2 * M_PI);
-  range_min = 0.02;
-  range_max = 12;
   int beam_size = static_cast<int>(src.size());
   angle_increment = (angle_max - angle_min) / (float)(beam_size -1);
   // Calculate the number of scanning points
@@ -293,8 +294,8 @@ void  ToLaserscanMessagePublish(ldlidar::Points2D& src,  double lidar_spin_freq,
     output.header.frame_id = setting.frame_id;
     output.angle_min = angle_min;
     output.angle_max = angle_max;
-    output.range_min = range_min;
-    output.range_max = range_max;
+    output.range_min = LIDAR_RANGE_MIN;
+    output.range_max = LIDAR_RANGE_MAX;
     output.angle_increment = angle_increment;
     if (beam_size <= 1) {
       output.time_increment = 0;
@@ -314,7 +315,7 @@ void  ToLaserscanMessagePublish(ldlidar::Points2D& src,  double lidar_spin_freq,
       if ((point.distance == 0)
 		      || (point.intensity < setting.min_intensity) // helps filtering out random noise
 		      //|| (point.intensity > 250)
-		      || (range < range_min + 0.02) || (range > range_max - 0.1)) {
+		      || (range < LIDAR_RANGE_MIN + 0.01) || (range > LIDAR_RANGE_MAX - 0.01)) {
         range = std::numeric_limits<float>::quiet_NaN(); 
         intensity = std::numeric_limits<float>::quiet_NaN();
       }
