@@ -195,7 +195,7 @@ int main(int argc, char **argv) {
               int p_distance = 0;
               int p_count = 0;
 
-              for(int j=i-1; j < 3 ;j++) {
+              for(int j=i-1; j < i+2 ;j++) {
 
                 auto point =  laser_scan_points_raw.at(j);
                 float range = point.distance / 1000.f;  // distance unit transform to meters
