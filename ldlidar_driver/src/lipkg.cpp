@@ -159,7 +159,9 @@ bool LiPkg::Parse(const uint8_t *data, long len) {
       timestamp_ = datapkg_.timestamp;
       
       // parse a package is success
-      double diff = (datapkg_.end_angle / 100 - datapkg_.start_angle / 100 + 360) % 360;
+      const uint32_t angle_diff =
+          (static_cast<uint32_t>(datapkg_.end_angle) + 36000 - datapkg_.start_angle) % 36000;
+      const double diff = angle_diff / 100.0;
       if (diff <= (static_cast<double>(datapkg_.speed) * static_cast<double>(POINT_PER_PACK) / lidar_measure_freq_ * 1.5)) {
 
         if (0 == last_pkg_timestamp_) {
@@ -170,8 +172,7 @@ bool LiPkg::Parse(const uint8_t *data, long len) {
           double pack_stamp_point_step =  
               static_cast<double>(current_pack_stamp - last_pkg_timestamp_) / static_cast<double>(pkg_point_number - 1);
           
-          uint32_t diff = ((uint32_t)datapkg_.end_angle + 36000 - (uint32_t)datapkg_.start_angle) % 36000;
-          float step = diff / (POINT_PER_PACK - 1) / 100.0;
+          double step = angle_diff / (100.0 * (POINT_PER_PACK - 1));
           float start = (double)datapkg_.start_angle / 100.0;
           PointData data;
           for (int i = 0; i < POINT_PER_PACK; i++) {
