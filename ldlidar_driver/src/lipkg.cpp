@@ -160,7 +160,7 @@ bool LiPkg::Parse(const uint8_t *data, long len) {
       
       // parse a package is success
       double diff = (datapkg_.end_angle / 100 - datapkg_.start_angle / 100 + 360) % 360;
-      if (diff <= ((double)datapkg_.speed * POINT_PER_PACK / lidar_measure_freq_ * 1.5)) {
+      if (diff <= (static_cast<double>(datapkg_.speed) * static_cast<double>(POINT_PER_PACK) / lidar_measure_freq_ * 1.5)) {
 
         if (0 == last_pkg_timestamp_) {
           last_pkg_timestamp_ = get_timestamp_();
