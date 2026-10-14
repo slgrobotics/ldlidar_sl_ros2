@@ -84,13 +84,7 @@ public:
 
   bool GetLidarPowerOnCommStatus(void);
 
-  void ClearDataProcessStatus(void) {
-    is_frame_ready_ = false;
-    is_poweron_comm_normal_ = false;
-    lidarstatus_ = LidarStatus::NORMAL;
-    lidarerrorcode_ = LIDAR_NO_ERROR;
-    last_pkg_timestamp_ = 0;
-  }
+  void ClearDataProcessStatus(void);
 
 private:
   int lidar_measure_freq_;
@@ -109,8 +103,11 @@ private:
   LiDARFrameTypeDef datapkg_;
   Points2D lidar_frame_data_;
   Points2D frame_tmp_;
-  std::mutex mutex_lock1_;
-  std::mutex mutex_lock2_;
+  std::mutex mutex_;
+  enum ParseState { HEADER, VER_LEN, DATA };
+  ParseState parser_state_ = HEADER;
+  size_t parser_count_ = 0;
+  uint8_t parser_buffer_[sizeof(LiDARFrameTypeDef)] = {};
 
   void SetLidarStatus(LidarStatus status);
 
@@ -118,19 +115,11 @@ private:
 
   bool AnalysisOne(uint8_t byte); // parse single packet
 
-  bool Parse(const uint8_t *data, long len); 
+  bool Parse(const uint8_t *data, size_t len);
 
   bool AssemblePacket(); // combine stantard data into data frames and calibrate
 
-  bool IsFrameReady(void);  // get Lidar data frame ready flag
-
-  void ResetFrameReady(void);  // reset frame ready flag
-
-  void SetFrameReady(void);    // set frame ready flag
-
   void SetLaserScanData(Points2D& src);
-
-  Points2D GetLaserScanData(void);
 
   // void AnalysisLidarIsBlocking(uint16_t lidar_speed_val);
 

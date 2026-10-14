@@ -22,7 +22,7 @@
 
 namespace ldlidar {
 
-bool LDLidarDriver::is_ok_ = false;
+std::atomic<bool> LDLidarDriver::is_ok_{false};
 
 LDLidarDriver::LDLidarDriver() : sdk_pack_version_("3.0.5"),
   is_start_flag_(false),
@@ -33,6 +33,7 @@ LDLidarDriver::LDLidarDriver() : sdk_pack_version_("3.0.5"),
 }
 
 LDLidarDriver::~LDLidarDriver() {
+  Stop();
   if (comm_pkg_ != nullptr) {
     delete comm_pkg_;
   }
@@ -72,6 +73,7 @@ bool LDLidarDriver::Start(LDType product_name, std::string serial_port_name, uin
     return false;
   }
 
+  last_pubdata_times_ = std::chrono::steady_clock::now();
   is_start_flag_ = true;
 
   SetIsOkStatus(true);
