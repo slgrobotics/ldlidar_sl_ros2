@@ -22,6 +22,7 @@
 #define __LDLIDAR_DRIVER_NODE_H__
 
 #include <chrono>
+#include <atomic>
 
 #include "lipkg.h"
 #include "serial_interface_linux.h"
@@ -103,7 +104,7 @@ public:
 
 private:
   std::string sdk_pack_version_;
-  static bool is_ok_;
+  static std::atomic<bool> is_ok_;
   bool is_start_flag_;
   LiPkg* comm_pkg_;
   SerialInterfaceLinux* comm_serial_;

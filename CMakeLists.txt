@@ -40,6 +40,13 @@ include_directories(
 
 file(GLOB  LDLIDAR_DRI ${CMAKE_CURRENT_SOURCE_DIR}/ldlidar_driver/src/*.cpp)
 
+if(BUILD_TESTING)
+  add_executable(lipkg_regression tests/lipkg_regression.cpp ${LDLIDAR_DRI})
+  target_link_libraries(lipkg_regression PRIVATE pthread)
+  target_compile_options(lipkg_regression PRIVATE -UNDEBUG)
+  add_test(NAME lipkg_regression COMMAND lipkg_regression)
+endif()
+
 add_executable(${PROJECT_NAME}_node  
   ${CMAKE_CURRENT_SOURCE_DIR}/src/demo.cpp 
   ${LDLIDAR_DRI} 

@@ -26,7 +26,7 @@
 namespace ldlidar {
 
 SerialInterfaceLinux::SerialInterfaceLinux()
-    : rx_thread_(nullptr), rx_count_(0), read_callback_(nullptr) {
+    : rx_thread_(nullptr), rx_count_(0), is_cmd_opened_(false), rx_thread_exit_flag_(true), read_callback_(nullptr) {
   com_handle_ = -1;
   com_baudrate_ = 0;
 }
@@ -34,6 +34,7 @@ SerialInterfaceLinux::SerialInterfaceLinux()
 SerialInterfaceLinux::~SerialInterfaceLinux() { Close(); }
 
 bool SerialInterfaceLinux::Open(std::string &port_name, uint32_t com_baudrate) {
+  if (IsOpened()) return true;
   int flags = (O_RDWR | O_NOCTTY | O_NONBLOCK);
 
   com_handle_ = open(port_name.c_str(), flags);
@@ -54,8 +55,8 @@ bool SerialInterfaceLinux::Open(std::string &port_name, uint32_t com_baudrate) {
     return false;
   }
 
+  options.c_cflag &= (tcflag_t) ~(CSIZE | CSTOPB | PARENB);
   options.c_cflag |= (tcflag_t)(CLOCAL | CREAD | CS8);
-  options.c_cflag &= (tcflag_t) ~(CSTOPB | PARENB);
   options.c_lflag &= (tcflag_t) ~(ICANON | ECHO | ECHOE | ECHOK | ECHONL |
                                   ISIG | IEXTEN);  //|ECHOPRT
   options.c_oflag &= (tcflag_t) ~(OPOST);
@@ -92,8 +93,8 @@ bool SerialInterfaceLinux::Open(std::string &port_name, uint32_t com_baudrate) {
   tcflush(com_handle_, TCIFLUSH);
 
   rx_thread_exit_flag_ = false;
-  rx_thread_ = new std::thread(RxThreadProc, this);
   is_cmd_opened_ = true;
+  rx_thread_ = new std::thread(RxThreadProc, this);
 
   return true;
 }
@@ -105,15 +106,15 @@ bool SerialInterfaceLinux::Close() {
 
   rx_thread_exit_flag_ = true;
 
+  if (rx_thread_ != nullptr) {
+    if (rx_thread_->joinable()) rx_thread_->join();
+    delete rx_thread_;
+    rx_thread_ = nullptr;
+  }
+
   if (com_handle_ != -1) {
     close(com_handle_);
     com_handle_ = -1;
-  }
-
-  if ((rx_thread_ != nullptr) && rx_thread_->joinable()) {
-    rx_thread_->join();
-    delete rx_thread_;
-    rx_thread_ = nullptr;
   }
 
   is_cmd_opened_ = false;
@@ -133,9 +134,7 @@ bool SerialInterfaceLinux::ReadFromIO(uint8_t *rx_buf, uint32_t rx_buf_len,
     int r = pselect(com_handle_ + 1, &read_fds, NULL, NULL, &timeout, NULL);
     if (r < 0) {
       // Select was interrupted
-      if (errno == EINTR) {
-        return false;
-      }
+      return false;
     } else if (r == 0) {  // timeout
       return false;
     }

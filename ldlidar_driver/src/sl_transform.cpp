@@ -52,7 +52,6 @@ SlTransform::SlTransform(LDType version, bool to_right_hand) {
 
 Points2D SlTransform::Transform(const Points2D &data) {
   Points2D tmp2;
-  static double last_shift_delta = 0;
   for (auto n : data) {
     // transfer the origin to the center of lidar circle
     // The default direction of radar rotation is clockwise
@@ -69,17 +68,17 @@ Points2D SlTransform::Transform(const Points2D &data) {
       } else {
         angle = n.angle - shift;
       }
-      last_shift_delta = shift;
+      last_shift_delta_ = shift;
     } else {
       if (to_right_hand_) {
         float right_hand = (360.f - n.angle);
-        angle = right_hand + last_shift_delta;
+        angle = right_hand + last_shift_delta_;
       } else {
-        angle = n.angle - last_shift_delta;
+        angle = n.angle - last_shift_delta_;
       }
     }
     
-    if (angle > 360) {
+    if (angle >= 360) {
       angle -= 360;
     }
     if (angle < 0) {

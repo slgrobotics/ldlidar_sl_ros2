@@ -36,6 +36,7 @@ private:
   double offset_x_;
   double offset_y_;
   LDType version_;
+  double last_shift_delta_ = 0;
 
 public:
   SlTransform(LDType version, bool to_right_hand = false);

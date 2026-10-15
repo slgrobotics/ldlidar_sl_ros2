@@ -75,6 +75,7 @@ LiPkg::~LiPkg() {
 }
 
 void LiPkg::SetProductType(LDType typenumber) {
+  std::lock_guard<std::mutex> lock(mutex_);
   typenumber_ = typenumber;
   switch (typenumber) {
     case LDType::LD_14:
@@ -91,47 +92,41 @@ void LiPkg::SetProductType(LDType typenumber) {
 }
 
 void LiPkg::SetNoiseFilter(bool is_enable) {
+  std::lock_guard<std::mutex> lock(mutex_);
   is_noise_filter_ = is_enable;
 }
 
 void LiPkg::RegisterTimestampGetFunctional(std::function<uint64_t(void)> timestamp_handle) {
+  std::lock_guard<std::mutex> lock(mutex_);
   get_timestamp_ = timestamp_handle;
 }
 
 bool LiPkg::AnalysisOne(uint8_t byte) {
-  static enum {
-    HEADER,
-    VER_LEN,
-    DATA,
-  } state = HEADER;
-  static uint16_t count = 0;
-  static uint8_t tmp[128] = {0};
-  static uint16_t pkg_count = sizeof(LiDARFrameTypeDef);
-
-  switch (state) {
+  switch (parser_state_) {
     case HEADER:
       if (byte == PKG_HEADER) {
-        tmp[count++] = byte;
-        state = VER_LEN;
+        parser_buffer_[parser_count_++] = byte;
+        parser_state_ = VER_LEN;
       }
       break;
     case VER_LEN:
       if (byte == PKG_VER_LEN) {
-        tmp[count++] = byte;
-        state = DATA;
+        parser_buffer_[parser_count_++] = byte;
+        parser_state_ = DATA;
       } else {
-        state = HEADER;
-        count = 0;
+        parser_count_ = byte == PKG_HEADER ? 1 : 0;
+        parser_state_ = byte == PKG_HEADER ? VER_LEN : HEADER;
+        if (parser_count_) parser_buffer_[0] = byte;
         return false;
       }
       break;
     case DATA:
-      tmp[count++] = byte;
-      if (count >= pkg_count) {
-        memcpy((uint8_t *)&datapkg_, tmp, pkg_count);
-        uint8_t crc = CalCRC8((uint8_t *)&datapkg_, pkg_count - 1);
-        state = HEADER;
-        count = 0;
+      parser_buffer_[parser_count_++] = byte;
+      if (parser_count_ >= sizeof(LiDARFrameTypeDef)) {
+        memcpy((uint8_t *)&datapkg_, parser_buffer_, sizeof(LiDARFrameTypeDef));
+        uint8_t crc = CalCRC8((uint8_t *)&datapkg_, sizeof(LiDARFrameTypeDef) - 1);
+        parser_state_ = HEADER;
+        parser_count_ = 0;
         if (crc == datapkg_.crc8) {
           return true;
         } else {
@@ -146,9 +141,12 @@ bool LiPkg::AnalysisOne(uint8_t byte) {
   return false;  
 }
 
-bool LiPkg::Parse(const uint8_t *data, long len) {
-  for (int i = 0; i < len; i++) {
+bool LiPkg::Parse(const uint8_t *data, size_t len) {
+  for (size_t i = 0; i < len; i++) {
     if (AnalysisOne(data[i])) {
+      if (datapkg_.start_angle >= 36000 || datapkg_.end_angle >= 36000) {
+        continue;
+      }
       poweron_datapkg_count_++;
       if (poweron_datapkg_count_ >= 2) {
         poweron_datapkg_count_ = 0;
@@ -159,19 +157,27 @@ bool LiPkg::Parse(const uint8_t *data, long len) {
       timestamp_ = datapkg_.timestamp;
       
       // parse a package is success
-      double diff = (datapkg_.end_angle / 100 - datapkg_.start_angle / 100 + 360) % 360;
-      if (diff <= ((double)datapkg_.speed * POINT_PER_PACK / lidar_measure_freq_ * 1.5)) {
+      const uint32_t angle_diff =
+          (static_cast<uint32_t>(datapkg_.end_angle) + 36000 - datapkg_.start_angle) % 36000;
+      const double diff = angle_diff / 100.0;
+      if (diff <= (static_cast<double>(datapkg_.speed) * static_cast<double>(POINT_PER_PACK) / lidar_measure_freq_ * 1.5)) {
 
         if (0 == last_pkg_timestamp_) {
           last_pkg_timestamp_ = get_timestamp_();
         } else {
           uint64_t current_pack_stamp = get_timestamp_();
+          if (current_pack_stamp < last_pkg_timestamp_) {
+            frame_tmp_.clear();
+            lidar_frame_data_.clear();
+            is_frame_ready_ = false;
+            last_pkg_timestamp_ = current_pack_stamp;
+            continue;
+          }
           int pkg_point_number = POINT_PER_PACK;
           double pack_stamp_point_step =  
               static_cast<double>(current_pack_stamp - last_pkg_timestamp_) / static_cast<double>(pkg_point_number - 1);
           
-          uint32_t diff = ((uint32_t)datapkg_.end_angle + 36000 - (uint32_t)datapkg_.start_angle) % 36000;
-          float step = diff / (POINT_PER_PACK - 1) / 100.0;
+          double step = angle_diff / (100.0 * (POINT_PER_PACK - 1));
           float start = (double)datapkg_.start_angle / 100.0;
           PointData data;
           for (int i = 0; i < POINT_PER_PACK; i++) {
@@ -181,7 +187,7 @@ bool LiPkg::Parse(const uint8_t *data, long len) {
               data.angle -= 360.0;
             }
             data.intensity = datapkg_.point[i].intensity;
-            data.stamp = static_cast<uint64_t>(last_pkg_timestamp_ + (pack_stamp_point_step * i));
+            data.stamp = last_pkg_timestamp_ + static_cast<uint64_t>(pack_stamp_point_step * i);
             frame_tmp_.push_back(PointData(data.angle, data.distance, data.intensity, data.stamp));
           }
           last_pkg_timestamp_ = current_pack_stamp; //// update last pkg timestamp
@@ -207,7 +213,7 @@ bool LiPkg::AssemblePacket() {
     // wait for enough data, need enough data to show a circle
 	// enough data has been obtained
     if ((n.angle < 20.0) && (last_angle > 340.0)) {
-      if ((count * GetSpeed()) > (lidar_measure_freq_ * 1.4)) {
+      if ((count * (speed_ / 360.0)) > (lidar_measure_freq_ * 1.4)) {
         if (count >= (int)frame_tmp_.size()) {
           frame_tmp_.clear();
         } else {
@@ -232,7 +238,6 @@ bool LiPkg::AssemblePacket() {
       std::sort(tmp.begin(), tmp.end(), [](PointData a, PointData b) { return a.stamp < b.stamp; });
       if (tmp.size() > 0) {
         SetLaserScanData(tmp);
-        SetFrameReady();
 
         if (count >= (int)frame_tmp_.size()) {
           frame_tmp_.clear();
@@ -244,7 +249,7 @@ bool LiPkg::AssemblePacket() {
     }
     count++;
 
-    if ((count * GetSpeed()) > (lidar_measure_freq_ * 2)) {
+    if ((count * (speed_ / 360.0)) > (lidar_measure_freq_ * 2)) {
       if (count >= (int)frame_tmp_.size()) {
         frame_tmp_.clear();
       } else {
@@ -260,34 +265,38 @@ bool LiPkg::AssemblePacket() {
 }
 
 void LiPkg::CommReadCallBack(const char *byte, size_t len) {
-  if (this->Parse((uint8_t *)byte, len)) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (!byte || !get_timestamp_) return;
+  if (this->Parse(reinterpret_cast<const uint8_t *>(byte), len)) {
     this->AssemblePacket();
   }
 }
 
 bool LiPkg::GetLaserScanData(Points2D& out) {
-  if (IsFrameReady()) {
-    ResetFrameReady();
-    out = GetLaserScanData();
-    return true;
-  } else {
-    return false;
-  }
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (!is_frame_ready_) return false;
+  out = lidar_frame_data_;
+  is_frame_ready_ = false;
+  return true;
 }
 
 double LiPkg::GetSpeed(void) { 
+  std::lock_guard<std::mutex> lock(mutex_);
   return (speed_ / 360.0);  // unit  is Hz
 }
 
 LidarStatus LiPkg::GetLidarStatus(void) {
+  std::lock_guard<std::mutex> lock(mutex_);
   return lidarstatus_;
 }
 
 uint8_t LiPkg::GetLidarErrorCode(void) {
+  std::lock_guard<std::mutex> lock(mutex_);
   return lidarerrorcode_;
 }
 
 bool LiPkg::GetLidarPowerOnCommStatus(void) {
+  std::lock_guard<std::mutex> lock(mutex_);
   if (is_poweron_comm_normal_) {
     is_poweron_comm_normal_ = false;
     return true;
@@ -304,29 +313,25 @@ void LiPkg::SetLidarErrorCode(uint8_t errorcode) {
   lidarerrorcode_ = errorcode;
 }
 
-bool LiPkg::IsFrameReady(void) {
-  std::lock_guard<std::mutex> lg(mutex_lock1_);
-  return is_frame_ready_; 
-}
-
-void LiPkg::ResetFrameReady(void) {
-  std::lock_guard<std::mutex> lg(mutex_lock1_);
-  is_frame_ready_ = false;
-}
-
-void LiPkg::SetFrameReady(void) {
-  std::lock_guard<std::mutex> lg(mutex_lock1_);
+void LiPkg::SetLaserScanData(Points2D& src) {
+  lidar_frame_data_ = src;
   is_frame_ready_ = true;
 }
 
-void LiPkg::SetLaserScanData(Points2D& src) {
-  std::lock_guard<std::mutex> lg(mutex_lock2_);
-  lidar_frame_data_ = src;
-}
-
-Points2D LiPkg::GetLaserScanData(void) {
-  std::lock_guard<std::mutex> lg(mutex_lock2_);
-  return lidar_frame_data_; 
+void LiPkg::ClearDataProcessStatus(void) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  is_frame_ready_ = false;
+  is_poweron_comm_normal_ = false;
+  lidarstatus_ = LidarStatus::NORMAL;
+  lidarerrorcode_ = LIDAR_NO_ERROR;
+  last_pkg_timestamp_ = 0;
+  poweron_datapkg_count_ = 0;
+  speed_ = 0;
+  timestamp_ = 0;
+  parser_state_ = HEADER;
+  parser_count_ = 0;
+  frame_tmp_.clear();
+  lidar_frame_data_.clear();
 }
 
 }  // namespace ldlidar
