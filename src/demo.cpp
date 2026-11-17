@@ -18,6 +18,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#include <cmath>
+#include <memory>
+#include <thread>
 #include "ros2_api.h"
 #include "ldlidar_driver.h"
 
@@ -62,6 +65,14 @@ int main(int argc, char **argv) {
   // Added to measure average beam count (points per revolution) at start:
   int beam_count = 0;
   int beam_count_i = 0;
+
+  // Maximum polling/publication rate. Zero publishes every available revolution.
+  const double limit_scan_rate = node->declare_parameter<double>("limit_scan_rate", 6.0);
+  if (!std::isfinite(limit_scan_rate) || limit_scan_rate < 0.0) {
+    RCLCPP_ERROR(node->get_logger(), "limit_scan_rate must be finite and nonnegative");
+    rclcpp::shutdown();
+    return EXIT_FAILURE;
+  }
 
   // declare ros2 param
   node->declare_parameter<std::string>("product_name", product_name);
@@ -150,14 +161,25 @@ int main(int argc, char **argv) {
   rclcpp::Publisher<sensor_msgs::msg::PointCloud>::SharedPtr lidar_pub_pointcloud = 
       node->create_publisher<sensor_msgs::msg::PointCloud>(point_cloud_2d_topic_name, 10);
 
-  rclcpp::WallRate r(6); //Hz
+  std::unique_ptr<rclcpp::WallRate> scan_rate;
+  if (limit_scan_rate > 0.0) {
+    scan_rate = std::make_unique<rclcpp::WallRate>(limit_scan_rate);
+    RCLCPP_INFO(node->get_logger(), "Scan rate limited to %.2f Hz", limit_scan_rate);
+  } else {
+    RCLCPP_INFO(node->get_logger(), "Scan rate follows available LiDAR revolutions");
+  }
 
   ldlidar::Points2D laser_scan_points_raw;
   ldlidar::Points2D laser_scan_points;
 
   RCLCPP_INFO(node->get_logger(), "start normal, pub lidar data");
 
+  rclcpp::executors::SingleThreadedExecutor executor;
+  executor.add_node(node);
+
   while (rclcpp::ok() && ldlidar::LDLidarDriver::IsOk()) {
+    // Service parameter requests and other ROS callbacks while publishing scans.
+    executor.spin_some();
   
     switch (lidar_drv->GetLaserScanData(laser_scan_points_raw, 1500)){
       case ldlidar::LidarStatus::NORMAL: {
@@ -245,7 +267,12 @@ int main(int argc, char **argv) {
         break;
     }
 
-    r.sleep();
+    if (scan_rate) {
+      scan_rate->sleep();
+    } else {
+      // The SDK returns DATA_WAIT without blocking between complete frames.
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
   }
 
   lidar_drv->Stop();
