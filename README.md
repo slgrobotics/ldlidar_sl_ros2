@@ -1,6 +1,46 @@
-**Note:** STL-19P (LD19P) LIDAR has 230400 baud rate and ```'product_name': 'LDLiDAR_LD14P'``` setting works for it.
+**Back to** [Wiki](https://github.com/slgrobotics/articubot_one/wiki)
 
-See https://github.com/slgrobotics/robots_bringup/blob/main/Docs/Sensors/LD14.md
+------------------
+
+**Note:**
+- This fork implements *"constant beam count"* feature - ROS2 fails without it.
+- STL-19P (LD19P) LIDAR has 230400 baud rate and ```'product_name': 'LDLiDAR_LD14P'``` setting works for it.
+- See https://github.com/slgrobotics/robots_bringup/blob/main/Docs/Sensors/LD14.md for setup instructions.
+- See [this file](https://github.com/slgrobotics/articubot_one/blob/lyrical/robots/seggy/launch/seggy.sensors.launch.py) for an example of launch.
+- The driver reads parameters at startup, so restart the node to apply changes.
+
+| Parameter | Type | Default | Purpose |
+|---|---|---|---|
+| `product_name` | string | `""` | Selects `LDLiDAR_LD14` or `LDLiDAR_LD14P`. Seggy’s FHL-LD19 launch uses `LDLiDAR_LD14P`. |
+| `port_name` | string | `""` | Serial device path. An empty value causes startup to fail. See [this](https://github.com/slgrobotics/robots_bringup/blob/main/Docs/Sensors/PersistentUSB.md) |
+| `serial_baudrate` | integer | `0` | Serial baud rate. Seggy’s LD19 launch sets `230400`. |
+| `limit_scan_rate` | double | `6.0` | Set it to `0.0` to publish each available complete revolution at the sensor's rotation rate (~10 Hz). |
+| `laser_scan_topic_name` | string | `""` | Output topic for `sensor_msgs/msg/LaserScan`. |
+| `point_cloud_2d_topic_name` | string | `""` | Output topic for the 2D `sensor_msgs/msg/PointCloud`. |
+| `frame_id` | string | `"base_laser"` | Frame ID stamped on the output messages. |
+| `laser_scan_dir` | boolean | `true` | `true` for counterclockwise, `false` for clockwise. |
+| `enable_angle_crop_func` | boolean | `false` | Enables masking a sector of the scan. |
+| `angle_crop_min` | double | `0.0` | Lower bound of the masked sector, in degrees. |
+| `angle_crop_max` | double | `0.0` | Upper bound of the masked sector, in degrees. |
+| `min_intensity` | integer | `0` | Filters out weak returns. |
+| `do_filtering` | boolean | `true` | Enables the SDK’s `NearFilter` processing. |
+| `do_triplets` | boolean | `false` | Combines beams in groups of three, reducing the beam count by about a factor of three. |
+
+The scan range bounds are hard-coded as `LIDAR_RANGE_MIN = 0.1` m and `LIDAR_RANGE_MAX = 12.0` m. Standard ROS node parameters such as `use_sim_time` are separate from these driver settings.
+
+### Scan publication rate
+
+Set the double parameter `limit_scan_rate` at startup to cap scan publication
+in Hz. The default is `6.0`. Set it to `0.0` to publish each available complete
+revolution at the sensor's rotation rate. The setting limits the driver's polling
+and publication loop. It does not change the motor speed. Restart the driver
+after changing it.
+
+```bash
+ros2 run ldlidar_sl_ros2 ldlidar_sl_ros2_node --ros-args   --params-file /path/to/lidar.yaml -p limit_scan_rate:=0.0
+```
+
+Values must be finite and nonnegative.
 
 ================================= Original README: ======================================
 
